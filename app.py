@@ -1,7 +1,7 @@
 from langchain_experimental.agents.agent_toolkits import create_csv_agent
 from langchain.agents import AgentType, initialize_agent, load_tools
 from langchain_openai import ChatOpenAI
-from langchain.memory import ConversationBufferMemory
+from langchain.memory import ConversationBufferMemory, MomentoChatMessageHistory
 from langchain.prompts import MessagesPlaceholder
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
@@ -10,6 +10,10 @@ from dotenv import load_dotenv
 import os
 import streamlit as st
 import csv
+from datetime import timedelta
+import uuid
+
+session_id = str(uuid.uuid4())
 
 
 def main():
@@ -26,12 +30,16 @@ def main():
     agent_kwargs = {
         "extra_prompt_messages": [MessagesPlaceholder(variable_name="memory")],
     }
-    memory = ConversationBufferMemory(memory_key="memory", return_messages=True)
+    history = MomentoChatMessageHistory.from_client_params(
+        session_id,
+        os.environ["MOMENTO_CACHE"],
+        timedelta(hours=int(os.environ["MOMENTO_TTL"])),
+    )
+    memory = ConversationBufferMemory(chat_memory=history, memory_key="memory", return_messages=True)
+    st.set_page_config(page_title="読書管理")
+    st.header("読書管理 📖")
 
-    st.set_page_config(page_title="Ask your CSV")
-    st.header("Ask your CSV 📈")
-
-    csv_file = st.file_uploader("Upload a CSV file", type="csv")
+    csv_file = st.file_uploader(label="Choose a CSV file", type="csv")
 
     data = []
 
@@ -85,7 +93,7 @@ def main():
 
         if user_question is not None and user_question != "":
             with st.spinner(text="In progress..."):
-                st.write(agent_chain.run(user_question))
+                st.write(agent_chain.run("invoke book_history or bing-search only" + user_question))
 
 
 if __name__ == "__main__":
