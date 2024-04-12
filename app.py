@@ -3,7 +3,7 @@ from langchain.agents import AgentType, initialize_agent, load_tools
 from langchain_openai import ChatOpenAI
 from langchain.memory import ConversationBufferMemory, MomentoChatMessageHistory
 from langchain.prompts import MessagesPlaceholder
-from langchain.prompts import PromptTemplate
+from langchain.prompts import PromptTemplate, ChatPromptTemplate
 from langchain.chains import LLMChain
 from langchain.tools import StructuredTool
 from dotenv import load_dotenv
@@ -58,27 +58,37 @@ def main():
         print(data)
 
         # プロンプトテンプレートの定義
+        # template = """
+        # {user_question}
+        # 以下は質問者の読書履歴データです。データに基づいて上記の質問に答えてください。
+
+        # {data}
+
+        # """
+
+        # prompt = PromptTemplate(
+        #     input_variables=["user_question", "data"],
+        #     template=template,
+        # )
+
         template = """
         {user_question}
         以下は質問者の読書履歴データです。データに基づいて上記の質問に答えてください。
-
 
         {data}
 
         """
 
-        prompt = PromptTemplate(
-            input_variables=["user_question", "data"],
-            template=template,
-        )
+        prompt = ChatPromptTemplate.from_template(template)
 
         # LLMチェーンの作成
-        book_history = LLMChain(llm=chat, prompt=prompt)
+        # book_history = LLMChain(llm=chat, prompt=prompt)
+        book_history = prompt | chat
 
         tools = load_tools(["bing-search"], llm=chat)
         tools = tools + [
             StructuredTool.from_function(
-                func=lambda user_question: book_history.run(user_question=user_question, data=data),
+                func=lambda user_question: book_history.invoke({"user_question": user_question, "data": data}),
                 name="book_history",
                 description="読書履歴データを元に、本に関するユーザーの質問に答える",
             )
