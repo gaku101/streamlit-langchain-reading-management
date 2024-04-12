@@ -16,17 +16,38 @@ import uuid
 session_id = str(uuid.uuid4())
 
 
+def create_tools(data, chat):
+
+    # プロンプトテンプレートの定義
+    template = """
+        {user_question}
+        以下は質問者の読書履歴データです。データに基づいて上記の質問に答えてください。
+
+        {data}
+
+        """
+
+    prompt = ChatPromptTemplate.from_template(template)
+
+    # LLMチェーンの作成
+    # book_history = LLMChain(llm=chat, prompt=prompt)
+    book_history = prompt | chat
+    tools = load_tools(["bing-search"], llm=chat)
+    return tools + [
+        StructuredTool.from_function(
+            func=lambda user_question: book_history.invoke({"user_question": user_question, "data": data}),
+            name="book_history",
+            description="読書履歴データを元に、本に関するユーザーの質問に答える",
+        )
+    ]
+
+
 def main():
     load_dotenv()
 
-    # Load the OpenAI API key from the environment variable
-    if os.getenv("OPENAI_API_KEY") is None or os.getenv("OPENAI_API_KEY") == "":
-        print("OPENAI_API_KEY is not set")
-        exit(1)
-    else:
-        print("OPENAI_API_KEY is set")
+    chat = ChatOpenAI(model="gpt-3.5-turo", temperature=0, streaming=True)
 
-    chat = ChatOpenAI(model="gpt-3.5-turbo", temperature=0, streaming=True)
+    # memory関連
     agent_kwargs = {
         "extra_prompt_messages": [MessagesPlaceholder(variable_name="memory")],
     }
@@ -36,6 +57,8 @@ def main():
         timedelta(hours=int(os.environ["MOMENTO_TTL"])),
     )
     memory = ConversationBufferMemory(chat_memory=history, memory_key="memory", return_messages=True)
+
+    # タイトルとアップローダーの生成
     st.set_page_config(page_title="読書管理")
     st.header("読書管理 📖")
 
@@ -55,52 +78,13 @@ def main():
             book = {"title": row[0], "author": row[2], "publisher": row[4], "completed_date": row[6]}
             data.append(book)
 
-        print(data)
-
-        # プロンプトテンプレートの定義
-        # template = """
-        # {user_question}
-        # 以下は質問者の読書履歴データです。データに基づいて上記の質問に答えてください。
-
-        # {data}
-
-        # """
-
-        # prompt = PromptTemplate(
-        #     input_variables=["user_question", "data"],
-        #     template=template,
-        # )
-
-        template = """
-        {user_question}
-        以下は質問者の読書履歴データです。データに基づいて上記の質問に答えてください。
-
-        {data}
-
-        """
-
-        prompt = ChatPromptTemplate.from_template(template)
-
-        # LLMチェーンの作成
-        # book_history = LLMChain(llm=chat, prompt=prompt)
-        book_history = prompt | chat
-
-        tools = load_tools(["bing-search"], llm=chat)
-        tools = tools + [
-            StructuredTool.from_function(
-                func=lambda user_question: book_history.invoke({"user_question": user_question, "data": data}),
-                name="book_history",
-                description="読書履歴データを元に、本に関するユーザーの質問に答える",
-            )
-        ]
-
+        # data取得完了後toolsのセットアップとagentの初期化
+        tools = create_tools(data, chat)
         agent_chain = initialize_agent(
-            tools, chat, agent=AgentType.OPENAI_FUNCTIONS, agent_kwargs=agent_kwargs, memory=memory, verbose=True
-        )
+                tools, chat, agent=AgentType.OPENAI_FUNCTIONS, agent_kwargs=agent_kwargs, memory=memory, verbose=True
+            )
 
         user_question = st.text_input("Ask a question about your CSV: ")
-        print("user_question:", user_question)
-
         if user_question is not None and user_question != "":
             with st.spinner(text="In progress..."):
                 st.write(agent_chain.run("invoke book_history or bing-search only" + user_question))
